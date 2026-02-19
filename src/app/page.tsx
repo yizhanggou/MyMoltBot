@@ -8,28 +8,31 @@ export default function Home() {
   const [isCameraOn, setIsCameraOn] = useState(false)
   const [error, setError] = useState('')
   const [publicUrl, setPublicUrl] = useState('')
+  const [imgLoaded, setImgLoaded] = useState(false)
   const monaImgRef = useRef<HTMLImageElement | null>(null)
 
   // 蒙娜丽莎脸部透明区域坐标 (基于1920x1300图像调整，根据实际抠图精确)
-  // 精确脸部坐标 (基于抠图图像调整)
-  const FACE_X = 680
-  const FACE_Y = 280
-  const FACE_WIDTH = 560
-  const FACE_HEIGHT = 620
+  // 精确脸部坐标 (基于抠图黑边优化)
+  const FACE_X = 720
+  const FACE_Y = 320
+  const FACE_WIDTH = 480
+  const FACE_HEIGHT = 580
   const CANVAS_WIDTH = 1920
   const CANVAS_HEIGHT = 2861
 
   useEffect(() => {
     // 预加载蒙娜丽莎图像
     const img = new Image()
+    img.crossOrigin = 'anonymous'
     img.src = '/mona-lisa.png'
     img.onload = () => {
       monaImgRef.current = img
+      setImgLoaded(true)
+      console.log('🖼️ 蒙娜丽莎加载成功:', img.naturalWidth, 'x', img.naturalHeight)
     }
+    img.onerror = () => console.error('图片加载失败')
     return () => {
-      if (monaImgRef.current) {
-        monaImgRef.current = null
-      }
+      if (monaImgRef.current) monaImgRef.current = null
     }
   }, [])
 
@@ -65,33 +68,22 @@ export default function Home() {
   }, [])
 
   const drawLoop = useCallback(() => {
-    if (!isCameraOn) return
+    if (!isCameraOn || !imgLoaded) return
 
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
     const video = videoRef.current
     const monaImg = monaImgRef.current
 
-    if (ctx && video && video.videoWidth > 0 && monaImg && canvas && monaImg.complete) {
+    if (!ctx || !video || !monaImg || !canvas) return
+
+    console.log('绘制帧:', video.videoWidth, 'x', video.videoHeight)
       // 清空画布
       ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
       // 绘制蒙娜丽莎背景 (缩放适应画布)
-      // 保持原比例缩放背景
-      const imgRatio = monaImg.naturalHeight / monaImg.naturalWidth
-      const canvasRatio = CANVAS_HEIGHT / CANVAS_WIDTH
-      let drawW = CANVAS_WIDTH
-      let drawH = CANVAS_HEIGHT
-      let offsetX = 0
-      let offsetY = 0
-      if (imgRatio > canvasRatio) {
-        drawW = CANVAS_HEIGHT / imgRatio
-        offsetX = (CANVAS_WIDTH - drawW) / 2
-      } else {
-        drawH = CANVAS_WIDTH * imgRatio
-        offsetY = (CANVAS_HEIGHT - drawH) / 2
-      }
-      ctx.drawImage(monaImg, offsetX, offsetY, drawW, drawH)
+      // 背景全覆盖 (拉伸适应，优先清晰)
+      ctx.drawImage(monaImg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
       // 保存状态，裁剪脸部区域，绘制用户视频脸部 (翻转以镜像自拍)
       ctx.save()
@@ -100,8 +92,21 @@ export default function Home() {
       ctx.clip()
 
       // 视频翻转 (自拍镜像效果)
+      // 视频脸部裁剪到 clip 区 (居中缩放，保持比例)
+      const videoRatio = video.videoHeight / video.videoWidth
+      const faceRatio = FACE_HEIGHT / FACE_WIDTH
+      let vW = FACE_WIDTH
+      let vH = FACE_WIDTH * videoRatio
+      let vX = 0
+      let vY = (FACE_HEIGHT - vH) / 2
+      if (videoRatio < faceRatio) {
+        vH = FACE_HEIGHT
+        vW = FACE_HEIGHT / videoRatio
+        vY = 0
+        vX = (FACE_WIDTH - vW) / 2
+      }
       ctx.scale(-1, 1)
-      ctx.drawImage(video, -FACE_WIDTH, 0, FACE_WIDTH, FACE_HEIGHT)
+      ctx.drawImage(video, -FACE_WIDTH + vX, vY, vW, vH)
       ctx.restore()
     }
 
