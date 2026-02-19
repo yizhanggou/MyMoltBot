@@ -11,12 +11,13 @@ export default function Home() {
   const monaImgRef = useRef<HTMLImageElement | null>(null)
 
   // 蒙娜丽莎脸部透明区域坐标 (基于1920x1300图像调整，根据实际抠图精确)
+  // 精确脸部坐标 (基于抠图图像调整)
   const FACE_X = 680
-  const FACE_Y = 220
+  const FACE_Y = 280
   const FACE_WIDTH = 560
-  const FACE_HEIGHT = 680
+  const FACE_HEIGHT = 620
   const CANVAS_WIDTH = 1920
-  const CANVAS_HEIGHT = 1300
+  const CANVAS_HEIGHT = 2861
 
   useEffect(() => {
     // 预加载蒙娜丽莎图像
@@ -71,12 +72,26 @@ export default function Home() {
     const video = videoRef.current
     const monaImg = monaImgRef.current
 
-    if (ctx && video && video.videoWidth > 0 && monaImg && canvas) {
+    if (ctx && video && video.videoWidth > 0 && monaImg && canvas && monaImg.complete) {
       // 清空画布
       ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
       // 绘制蒙娜丽莎背景 (缩放适应画布)
-      ctx.drawImage(monaImg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+      // 保持原比例缩放背景
+      const imgRatio = monaImg.naturalHeight / monaImg.naturalWidth
+      const canvasRatio = CANVAS_HEIGHT / CANVAS_WIDTH
+      let drawW = CANVAS_WIDTH
+      let drawH = CANVAS_HEIGHT
+      let offsetX = 0
+      let offsetY = 0
+      if (imgRatio > canvasRatio) {
+        drawW = CANVAS_HEIGHT / imgRatio
+        offsetX = (CANVAS_WIDTH - drawW) / 2
+      } else {
+        drawH = CANVAS_WIDTH * imgRatio
+        offsetY = (CANVAS_HEIGHT - drawH) / 2
+      }
+      ctx.drawImage(monaImg, offsetX, offsetY, drawW, drawH)
 
       // 保存状态，裁剪脸部区域，绘制用户视频脸部 (翻转以镜像自拍)
       ctx.save()
