@@ -1,17 +1,16 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useState } from "react"
+import { useEffect, useRef, useState } from 'react'
 
 export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isCameraOn, setIsCameraOn] = useState(false)
   const [imgLoaded, setImgLoaded] = useState(false)
-  const [drawStatus, setDrawStatus] = useState("等待加载...")
-  const monaImgRef = useRef<HTMLImageElement | null>(null)
-  const animationIdRef = useRef<number>(0)
+  const [status, setStatus] = useState('加载中...')
+  const monaImgRef = useRef<HTMLImageElement>(null)
 
-  const FACE_X = 700 // 扩大clip区测试
+  const FACE_X = 700
   const FACE_Y = 300
   const FACE_WIDTH = 520
   const FACE_HEIGHT = 650
@@ -20,71 +19,36 @@ export default function Home() {
 
   useEffect(() => {
     const img = new Image()
-    img.src = "/mona-lisa.png?" + Date.now()
+    img.src = '/mona-lisa.png'
     img.onload = () => {
-      console.log("✅ PNG 蒙娜丽莎加载成功:", img.naturalWidth, "x", img.naturalHeight)
       monaImgRef.current = img
       setImgLoaded(true)
-      setDrawStatus("PNG背景加载完成 - 点击开启摄像头")
-      testBackground()
+      setStatus('背景加载完成，点击开启摄像头')
     }
-    img.onerror = () => setDrawStatus("PNG加载失败")
   }, [])
-
-  const testBackground = () => {
-    const canvas = canvasRef.current
-    const ctx = canvas?.getContext("2d")
-    const img = monaImgRef.current
-    if (ctx && img && canvas) {
-      ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
-      ctx.drawImage(img, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
-      ctx.strokeStyle = "#00FF00"
-      ctx.lineWidth = 10
-      ctx.strokeRect(FACE_X, FACE_Y, FACE_WIDTH, FACE_HEIGHT)
-      setDrawStatus("背景+绿框就绪")
-    }
-  }
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: 640, height: 480 }
-      })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
       const video = videoRef.current
       if (video) {
         video.srcObject = stream
         video.play()
         setIsCameraOn(true)
-        setDrawStatus("摄像头开启 - 等待视频加载...")
-        video.onloadeddata = () => {
-          console.log("📹 视频加载:", video.videoWidth, "x", video.videoHeight)
-          setDrawStatus("开始实时脸替换")
-          drawLoop()
-        }
+        setStatus('摄像头开启，脸部适配中...')
+        video.onloadeddata = drawLoop
       }
     } catch (err) {
-      setDrawStatus("摄像头错误: " + (err as Error).message)
-    }
-  }
-
-  const stopCamera = () => {
-    if (videoRef.current?.srcObject) {
-      (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop())
-      videoRef.current!.srcObject = null
-      setIsCameraOn(false)
-      if (animationIdRef.current) {
-        cancelAnimationFrame(animationIdRef.current)
-        animationIdRef.current = 0
-      }
-      setDrawStatus("摄像头关闭")
+      setStatus('摄像头权限错误: ' + err)
     }
   }
 
   const drawLoop = () => {
-    const canvas = canvasRef.current!
-    const ctx = canvas.getContext("2d")!
-    const video = videoRef.current!
-    const monaImg = monaImgRef.current!
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext('2d')
+    const video = videoRef.current
+    const monaImg = monaImgRef.current
+    if (!ctx || !video || !monaImg || !canvas || !imgLoaded || !isCameraOn) return requestAnimationFrame(drawLoop)
 
     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
     ctx.drawImage(monaImg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
@@ -97,46 +61,51 @@ export default function Home() {
     ctx.drawImage(video, -FACE_WIDTH, 0, FACE_WIDTH, FACE_HEIGHT)
     ctx.restore()
 
-    console.log("✅ 脸替换绘制完成")
-
-    animationIdRef.current = requestAnimationFrame(drawLoop)
+    requestAnimationFrame(drawLoop)
   }
 
   const saveImage = () => {
-    const canvas = canvasRef.current!
-    canvas.toBlob((blob) => {
-      const url = URL.createObjectURL(blob!)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = "mona-lisa-swap.png"
-      a.click()
-      URL.revokeObjectURL(url)
-    }, "image/png")
+    const canvas = canvasRef.current
+    if (canvas) {
+      const link = document.createElement('a')
+      link.download = 'mona-lisa-swap.png'
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+    }
+  }
+
+  const stopCamera = () => {
+    if (videoRef.current?.srcObject) {
+      (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop())
+      videoRef.current.srcObject = null
+      setIsCameraOn(false)
+      setStatus('摄像头关闭')
+    }
   }
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-to-br from-amber-50 to-orange-100 gap-8">
-      <h1 className="text-5xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">🖼️ 名画变脸</h1>
-      <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-12 shadow-2xl border-4 border-white/50 max-w-4xl w-full text-center">
-        <p className="text-xl font-bold mb-8">状态: <span className="bg-green-100 px-4 py-2 rounded-full font-mono">{drawStatus}</span></p>
-        <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} className="w-full max-w-3xl h-auto max-h-[70vh] object-contain rounded-3xl shadow-2xl border-8 border-purple-200 mx-auto block cursor-pointer" />
-        <div className="flex flex-wrap gap-6 justify-center mt-12">
+    <main style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem', background: 'linear-gradient(to br, #fef3c7, #fed7aa)' }}>
+      <h1 style={{ fontSize: '3rem', fontWeight: 'bold', background: 'linear-gradient(to r, #9333ea, #ec4899)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>🖼️ 名画变脸</h1>
+      <div style={{ background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(20px)', borderRadius: '2rem', padding: '3rem', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '4px solid rgba(255,255,255,0.5)', maxWidth: '80vw', textAlign: 'center' }}>
+        <p style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '2rem' }}>状态: <span style={{ background: '#dcfce7', padding: '0.5rem 1rem', borderRadius: '2rem', fontFamily: 'monospace' }}>{status}</span></p>
+        <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} style={{ width: '100%', maxWidth: '800px', height: 'auto', maxHeight: '70vh', objectFit: 'contain', borderRadius: '2rem', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', border: '8px solid #e9d5ff', cursor: 'pointer', display: 'block', margin: '0 auto' }} />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', justifyContent: 'center', marginTop: '3rem' }}>
           {!isCameraOn ? (
-            <button onClick={startCamera} className="px-12 py-6 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-xl font-bold rounded-3xl shadow-2xl hover:shadow-3xl hover:scale-105 transition-all">
+            <button onClick={startCamera} style={{ padding: '1.5rem 3rem', background: 'linear-gradient(to r, #10b981, #059669)', color: 'white', fontSize: '1.25rem', fontWeight: 'bold', borderRadius: '2rem', boxShadow: '0 10px 25px rgba(16,185,129,0.4)', border: 'none', cursor: 'pointer', transition: 'all 0.3s' }} onMouseOver={(e: any) => e.target.style.transform = 'scale(1.05)'} onMouseOut={(e: any) => e.target.style.transform = 'scale(1)'}>
               🎥 开启摄像头适配脸部
             </button>
           ) : (
             <>
-              <button onClick={saveImage} className="px-12 py-6 bg-gradient-to-r from-violet-500 to-fuchsia-600 text-white text-xl font-bold rounded-3xl shadow-2xl hover:shadow-3xl hover:scale-105 transition-all">
+              <button onClick={saveImage} style={{ padding: '1.5rem 3rem', background: 'linear-gradient(to r, #8b5cf6, #d946ef)', color: 'white', fontSize: '1.25rem', fontWeight: 'bold', borderRadius: '2rem', boxShadow: '0 10px 25px rgba(139,92,246,0.4)', border: 'none', cursor: 'pointer', transition: 'all 0.3s' }} onMouseOver={(e: any) => e.target.style.transform = 'scale(1.05)'} onMouseOut={(e: any) => e.target.style.transform = 'scale(1)'}>
                 💾 保存合成图 PNG
               </button>
-              <button onClick={stopCamera} className="px-12 py-6 bg-gradient-to-r from-red-500 to-rose-600 text-white text-xl font-bold rounded-3xl shadow-2xl hover:shadow-3xl hover:scale-105 transition-all">
+              <button onClick={stopCamera} style={{ padding: '1.5rem 3rem', background: 'linear-gradient(to r, #ef4444, #dc2626)', color: 'white', fontSize: '1.25rem', fontWeight: 'bold', borderRadius: '2rem', boxShadow: '0 10px 25px rgba(239,68,68,0.4)', border: 'none', cursor: 'pointer', transition: 'all 0.3s' }} onMouseOver={(e: any) => e.target.style.transform = 'scale(1.05)'} onMouseOut={(e: any) => e.target.style.transform = 'scale(1)'}>
                 ❌ 关闭摄像头
               </button>
             </>
           )}
         </div>
-        <p className="text-sm text-gray-600 mt-8 opacity-80">F12查看Console日志 | 脸自动适配蒙娜丽莎头部透明区 | 高清PNG下载</p>
+        <p style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '2rem', opacity: 0.8 }}>F12查看Console日志 | 脸自动适配蒙娜丽莎头部透明区 | 高清PNG下载</p>
       </div>
     </main>
   )
