@@ -6,13 +6,10 @@ export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isCameraOn, setIsCameraOn] = useState(false)
-  const [error, setError] = useState('')
-  const [publicUrl, setPublicUrl] = useState('')
   const [imgLoaded, setImgLoaded] = useState(false)
+  const [drawStatus, setDrawStatus] = useState('未开始')
   const monaImgRef = useRef<HTMLImageElement | null>(null)
 
-  // 蒙娜丽莎脸部透明区域坐标 (基于1920x1300图像调整，根据实际抠图精确)
-  // 精确脸部坐标 (基于抠图黑边优化)
   const FACE_X = 720
   const FACE_Y = 320
   const FACE_WIDTH = 480
@@ -21,181 +18,158 @@ export default function Home() {
   const CANVAS_HEIGHT = 2861
 
   useEffect(() => {
-    // 预加载蒙娜丽莎图像
+    console.log('🖼️ 开始预加载 /mona-lisa.png')
     const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.src = '/mona-lisa.png'
+    img.crossOrigin = "anonymous"
+    img.src = '/mona-lisa.png?' + Date.now() // 防缓存
     img.onload = () => {
+      console.log("✅ 图片加载成功!", img.naturalWidth, "x", img.naturalHeight)
       monaImgRef.current = img
       setImgLoaded(true)
-      console.log('🖼️ 蒙娜丽莎加载成功:', img.naturalWidth, 'x', img.naturalHeight)
+      setDrawStatus("图片加载完成")
+      // 立即测试绘制背景
+      testDrawBackground()
     }
-    img.onerror = () => console.error('图片加载失败')
-    return () => {
-      if (monaImgRef.current) monaImgRef.current = null
+    img.onerror = (e) => {
+      console.error("❌ 图片加载失败!", e)
+      setDrawStatus("图片加载失败")
     }
   }, [])
+
+  const testDrawBackground = () => {
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext("2d")
+    const img = monaImgRef.current
+    if (ctx && img && canvas) {
+      console.log("🎨 测试绘制背景")
+      ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+      ctx.drawImage(img, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+      setDrawStatus("背景绘制完成")
+    }
+  }
 
   const startCamera = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: 'user', 
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        } 
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
       })
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        await videoRef.current.play()
+        videoRef.current.play()
         setIsCameraOn(true)
-        setError('')
-        drawLoop()
+        setDrawStatus("摄像头启动，等待视频就绪")
+        setTimeout(drawLoop, 500) // 延迟启动绘制
       }
     } catch (err: any) {
-      setError('无法访问摄像头：' + (err.message || '请检查权限并重试'))
-      console.error(err)
+      console.error("摄像头错误:", err)
+      setDrawStatus("摄像头权限失败: " + err.message)
     }
   }, [])
 
-  const stopCamera = useCallback(() => {
+  const stopCamera = () => {
     if (videoRef.current?.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream
-      stream.getTracks().forEach(track => track.stop())
+      ;(videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop())
       videoRef.current.srcObject = null
       setIsCameraOn(false)
+      setDrawStatus("摄像头已关闭")
     }
-  }, [])
+  }
 
   const drawLoop = useCallback(() => {
-    if (!isCameraOn || !imgLoaded) return
+    if (!isCameraOn || !imgLoaded) {
+      console.log("跳过绘制: 摄像头=", isCameraOn, "图片=", imgLoaded)
+      return
+    }
 
-    const canvas = canvasRef.current
-    const ctx = canvas?.getContext('2d')
-    const video = videoRef.current
-    const monaImg = monaImgRef.current
+    const canvas = canvasRef.current!
+    const ctx = canvas.getContext("2d")!
+    const video = videoRef.current!
+    const monaImg = monaImgRef.current!
 
-    if (!ctx || !video || !monaImg || !canvas) return
+    if (video.videoWidth === 0) {
+      console.log("视频未就绪，跳过")
+      requestAnimationFrame(drawLoop)
+      return
+    }
 
-    console.log('绘制帧:', video.videoWidth, 'x', video.videoHeight)
+    console.log("绘制帧:", video.videoWidth, "x", video.videoHeight)
 
-    // 清空画布
+    // 1. 清空 + 背景
     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
-
-    // 背景全覆盖 (拉伸适应)
     ctx.drawImage(monaImg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
-    // 保存状态，裁剪脸部区域
+    // 2. 脸部 clip 区
     ctx.save()
     ctx.beginPath()
     ctx.rect(FACE_X, FACE_Y, FACE_WIDTH, FACE_HEIGHT)
     ctx.clip()
 
-    // 视频自适应裁剪 + 镜像翻转
+    // 3. 视频脸部 (镜像 + 自适应)
+    ctx.scale(-1, 1)
     const videoRatio = video.videoHeight / video.videoWidth
     const faceRatio = FACE_HEIGHT / FACE_WIDTH
-    let vW = FACE_WIDTH
-    let vH = FACE_WIDTH * videoRatio
-    let vX = 0
-    let vY = (FACE_HEIGHT - vH) / 2
+    let vW = FACE_WIDTH, vH = FACE_WIDTH * videoRatio, vX = 0, vY = (FACE_HEIGHT - vH) / 2
     if (videoRatio < faceRatio) {
       vH = FACE_HEIGHT
-      vW = FACE_HEIGHT / videoRatio
+      vW = vH / videoRatio
       vY = 0
       vX = (FACE_WIDTH - vW) / 2
     }
-    ctx.scale(-1, 1)
     ctx.drawImage(video, -FACE_WIDTH + vX, vY, vW, vH)
     ctx.restore()
 
     requestAnimationFrame(drawLoop)
   }, [isCameraOn, imgLoaded])
 
-  const capturePhoto = useCallback(() => {
+  const capturePhoto = () => {
     const canvas = canvasRef.current
-    if (!canvas) return
-
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `mona-lisa-${Date.now()}.png`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(url)
-      }
-    }, 'image/png')
-  }, [])
-
-  useEffect(() => {
-    // 检测公网 URL (Codespace)
-    if (typeof window !== 'undefined') {
-      setPublicUrl(window.location.origin + window.location.pathname)
+    if (canvas) {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement("a")
+          a.href = url
+          a.download = `mona-lisa-swap-${Date.now()}.png`
+          a.click()
+          URL.revokeObjectURL(url)
+        }
+      })
     }
-    return () => stopCamera()
-  }, [])
+  }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-100 flex flex-col items-center justify-center p-4 md:p-8">
-      <h1 className="text-3xl md:text-5xl font-black bg-gradient-to-r from-purple-600 via-pink-600 to-orange-600 bg-clip-text text-transparent mb-6 md:mb-12 text-center drop-shadow-lg">
-        🖼️ 名画变脸 - 蒙娜丽莎微笑合拍
-      </h1>
-      <div className="w-full max-w-4xl bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl p-6 md:p-12 border-4 border-white/50">
-        <div className="flex flex-col items-center gap-6 md:gap-12">
-          <video
-            ref={videoRef}
-            className="w-64 h-48 md:w-96 md:h-72 rounded-2xl shadow-xl hidden"
-            playsInline
-            muted
-          />
-          <canvas
-            ref={canvasRef}
-            width={CANVAS_WIDTH}
-            height={CANVAS_HEIGHT}
-            className="w-full max-w-2xl h-auto max-h-[70vh] md:max-h-[80vh] object-contain rounded-3xl shadow-2xl border-8 border-gradient-to-r from-indigo-300 to-purple-400 mx-auto block cursor-pointer hover:shadow-3xl transition-all duration-300"
-          />
+    <main className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-to-br from-indigo-50 to-purple-100 gap-8">
+      <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent drop-shadow-lg">🖼️ 名画变脸调试版</h1>
+      <div className="bg-white/80 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border max-w-4xl w-full">
+        <div className="text-center mb-8">
+          <p className="text-lg font-semibold text-gray-800 mb-2">状态: <span className="font-mono bg-blue-100 px-3 py-1 rounded-full">{drawStatus}</span></p>
+          <p className="text-sm text-gray-600">F12 Console 查看详细日志</p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center mt-8 md:mt-12 flex-wrap">
+        <video ref={videoRef} className="w-64 h-48 rounded-xl shadow-lg mx-auto mb-4 hidden" muted playsInline />
+        <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} className="w-full max-w-2xl h-auto max-h-96 object-contain rounded-2xl shadow-2xl border-4 border-indigo-300 mx-auto block" />
+        <div className="flex flex-wrap gap-4 justify-center mt-8">
+          <button onClick={testDrawBackground} disabled={!imgLoaded} className="px-6 py-3 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">
+            🖼️ 测试背景
+          </button>
           {!isCameraOn ? (
-            <button
-              onClick={startCamera}
-              className="px-8 py-4 md:px-12 md:py-5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-lg md:text-xl rounded-2xl shadow-xl hover:shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 flex items-center gap-2"
-            >
-              🎥 开启摄像头 (前置自拍)
+            <button onClick={startCamera} className="px-6 py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 shadow-lg">
+              🎥 开启摄像头
             </button>
           ) : (
             <>
-              <button
-                onClick={capturePhoto}
-                className="px-8 py-4 md:px-12 md:py-5 bg-gradient-to-r from-violet-500 to-fuchsia-600 text-white font-bold text-lg md:text-xl rounded-2xl shadow-xl hover:shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 flex items-center gap-2"
-              >
-                📸 保存合照 PNG
+              <button onClick={capturePhoto} className="px-6 py-3 bg-purple-500 text-white font-bold rounded-xl hover:bg-purple-600 shadow-lg">
+                📸 下载 PNG
               </button>
-              <button
-                onClick={stopCamera}
-                className="px-8 py-4 md:px-12 md:py-5 bg-gradient-to-r from-rose-500 to-red-600 text-white font-bold text-lg md:text-xl rounded-2xl shadow-xl hover:shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 flex items-center gap-2"
-              >
-                ❌ 停止摄像头
+              <button onClick={stopCamera} className="px-6 py-3 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 shadow-lg">
+                ❌ 关闭
               </button>
             </>
           )}
         </div>
-        {error && (
-          <p className="text-red-600 bg-red-100 p-4 rounded-2xl mt-6 text-center font-semibold border border-red-300">
-            {error}
-          </p>
-        )}
-        {publicUrl && (
-          <p className="text-xs md:text-sm text-gray-600 text-center mt-6 bg-blue-50 p-3 rounded-xl opacity-90">
-            💡 手机访问：{publicUrl} | 调整脸部位置，对准蒙娜丽莎微笑区，完美合拍！
-          </p>
-        )}
-        <p className="text-xs text-gray-500 mt-4 text-center opacity-80 leading-relaxed">
-          支持移动端前置摄像头 | 实时镜像预览 | 高清 PNG 下载 | 无需登录
-        </p>
       </div>
+      <p className="text-sm text-gray-500 max-w-md text-center">
+        先点击 "测试背景" 确认蒙娜丽莎显示 → 开启摄像头 → 脸自动替换黑洞区
+      </p>
     </main>
   )
 }
