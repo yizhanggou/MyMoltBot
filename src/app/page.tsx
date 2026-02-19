@@ -78,40 +78,38 @@ export default function Home() {
     if (!ctx || !video || !monaImg || !canvas) return
 
     console.log('绘制帧:', video.videoWidth, 'x', video.videoHeight)
-      // 清空画布
-      ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
-      // 绘制蒙娜丽莎背景 (缩放适应画布)
-      // 背景全覆盖 (拉伸适应，优先清晰)
-      ctx.drawImage(monaImg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+    // 清空画布
+    ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
-      // 保存状态，裁剪脸部区域，绘制用户视频脸部 (翻转以镜像自拍)
-      ctx.save()
-      ctx.beginPath()
-      ctx.rect(FACE_X, FACE_Y, FACE_WIDTH, FACE_HEIGHT)
-      ctx.clip()
+    // 背景全覆盖 (拉伸适应)
+    ctx.drawImage(monaImg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
-      // 视频翻转 (自拍镜像效果)
-      // 视频脸部裁剪到 clip 区 (居中缩放，保持比例)
-      const videoRatio = video.videoHeight / video.videoWidth
-      const faceRatio = FACE_HEIGHT / FACE_WIDTH
-      let vW = FACE_WIDTH
-      let vH = FACE_WIDTH * videoRatio
-      let vX = 0
-      let vY = (FACE_HEIGHT - vH) / 2
-      if (videoRatio < faceRatio) {
-        vH = FACE_HEIGHT
-        vW = FACE_HEIGHT / videoRatio
-        vY = 0
-        vX = (FACE_WIDTH - vW) / 2
-      }
-      ctx.scale(-1, 1)
-      ctx.drawImage(video, -FACE_WIDTH + vX, vY, vW, vH)
-      ctx.restore()
+    // 保存状态，裁剪脸部区域
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(FACE_X, FACE_Y, FACE_WIDTH, FACE_HEIGHT)
+    ctx.clip()
+
+    // 视频自适应裁剪 + 镜像翻转
+    const videoRatio = video.videoHeight / video.videoWidth
+    const faceRatio = FACE_HEIGHT / FACE_WIDTH
+    let vW = FACE_WIDTH
+    let vH = FACE_WIDTH * videoRatio
+    let vX = 0
+    let vY = (FACE_HEIGHT - vH) / 2
+    if (videoRatio < faceRatio) {
+      vH = FACE_HEIGHT
+      vW = FACE_HEIGHT / videoRatio
+      vY = 0
+      vX = (FACE_WIDTH - vW) / 2
     }
+    ctx.scale(-1, 1)
+    ctx.drawImage(video, -FACE_WIDTH + vX, vY, vW, vH)
+    ctx.restore()
 
     requestAnimationFrame(drawLoop)
-  }, [isCameraOn])
+  }, [isCameraOn, imgLoaded])
 
   const capturePhoto = useCallback(() => {
     const canvas = canvasRef.current
